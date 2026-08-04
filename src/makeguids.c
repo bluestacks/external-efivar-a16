@@ -55,6 +55,41 @@ cmpnamep(const void *p1, const void *p2)
 	return memcmp(gn1->name, gn2->name, sizeof (gn1->name));
 }
 
+static void
+write_asm_array(FILE *out, const char *symbol, const void *data, size_t size)
+{
+	const uint8_t *bytes = data;
+
+	fprintf(out,
+		"\t.globl %s\n"
+		"\t.data\n"
+		"\t.balign 16\n"
+		"\t.type\t%s, %%object\n"
+		"\t.size\t%s, %s_end - %s\n"
+		"%s:\n",
+		symbol, symbol, symbol, symbol, symbol, symbol);
+
+	for (size_t i = 0; i < size; i++) {
+		if (i % 12 == 0)
+			fputs("\t.byte ", out);
+		else
+			fputc(',', out);
+		fprintf(out, "0x%02x", bytes[i]);
+		if (i % 12 == 11 || i + 1 == size)
+			fputc('\n', out);
+	}
+
+	fprintf(out,
+		"\t.globl %s_end\n"
+		"\t.data\n"
+		"\t.balign 16\n"
+		"\t.type\t%s_end, %%object\n"
+		"\t.size\t%s_end, 1\n"
+		"%s_end:\n"
+		"\t.byte 0\n",
+		symbol, symbol, symbol, symbol);
+}
+
 struct guid_aliases {
 	char *name;
 	char *alias;
@@ -95,13 +130,13 @@ static void make_aliases(FILE *symout, FILE *header,
 int
 main(int argc, char *argv[])
 {
-	if (argc != 6)
+	if (argc != 6 && argc != 7)
 		exit(1);
 
 	int in, guidout, nameout;
 	int rc;
 
-	FILE *symout, *header;
+	FILE *symout, *header, *asmout = NULL;
 
 	in = open(argv[1], O_RDONLY);
 	if (in < 0)
@@ -128,6 +163,12 @@ main(int argc, char *argv[])
 	rc = chmod(argv[5], 0644);
 	if (rc < 0)
 		warn("makeguids: chmod(%s, 0644)", argv[5]);
+
+	if (argc == 7) {
+		asmout = fopen(argv[6], "w");
+		if (asmout == NULL)
+			err(1, "makeguids: could not open \"%s\"", argv[6]);
+	}
 
 	char *inbuf = NULL;
 	size_t inlen = 0;
@@ -235,11 +276,22 @@ main(int argc, char *argv[])
 	rc = write(guidout, outbuf, sizeof (struct guidname) * (line - 1));
 	if (rc < 0)
 		err(1, "makeguids");
+	if (asmout != NULL)
+		write_asm_array(asmout, "efi_well_known_guids", outbuf,
+				sizeof (struct guidname) * (line - 1));
 
 	qsort(outbuf, line-1, sizeof (struct guidname), cmpnamep);
 	rc = write(nameout, outbuf, sizeof (struct guidname) * (line - 1));
 	if (rc < 0)
 		err(1, "makeguids");
+	if (asmout != NULL) {
+		write_asm_array(asmout, "efi_well_known_names", outbuf,
+				sizeof (struct guidname) * (line - 1));
+		fputs("\n#if defined(__linux__) && defined(__ELF__)\n"
+		      ".section .note.GNU-stack,\"\",%progbits\n"
+		      "#endif\n", asmout);
+		fclose(asmout);
+	}
 	close(in);
 	close(guidout);
 	close(nameout);

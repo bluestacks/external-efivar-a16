@@ -19,3 +19,84 @@ cc_binary_host {
     ],
     host_ldlibs: ["-ldl"],
 }
+
+genrule {
+    name: "efivar_guid_source",
+    tools: ["makeguids"],
+    srcs: ["guids.txt"],
+    out: [
+        "guid-symbols.c",
+        "guids.generated.S",
+    ],
+    cmd: "mkdir -p $(genDir)/tmp $(genDir)/efivar && " +
+        "$(location makeguids) $(in) " +
+        "$(genDir)/tmp/guids.bin $(genDir)/tmp/names.bin " +
+        "$(genDir)/guid-symbols.c $(genDir)/tmp/efivar-guids.h " +
+        "$(genDir)/guids.generated.S",
+}
+
+genrule {
+    name: "efivar_guid_header",
+    tools: ["makeguids"],
+    srcs: ["guids.txt"],
+    out: ["efivar/efivar-guids.h"],
+    cmd: "mkdir -p $(genDir)/tmp $(genDir)/efivar && " +
+        "$(location makeguids) $(in) " +
+        "$(genDir)/tmp/guids.bin $(genDir)/tmp/names.bin " +
+        "$(genDir)/tmp/guid-symbols.c $(out)",
+}
+
+cc_library_static {
+    name: "libefivar",
+
+    srcs: [
+        "crc32.c",
+        "creator.c",
+        "disk.c",
+        "gpt.c",
+        "loadopt.c",
+        "path-helpers.c",
+        "linux-acpi-root.c",
+        "linux-acpi.c",
+        "linux-ata.c",
+        "linux-emmc.c",
+        "linux-i2o.c",
+        "linux-md.c",
+        "linux-nvme.c",
+        "linux-pci-root.c",
+        "linux-pci.c",
+        "linux-pmem.c",
+        "linux-sas.c",
+        "linux-sata.c",
+        "linux-scsi.c",
+        "linux-soc-root.c",
+        "linux-virtblk.c",
+        "linux.c",
+        "dp.c",
+        "dp-acpi.c",
+        "dp-hw.c",
+        "dp-media.c",
+        "dp-message.c",
+        "efivarfs.c",
+        "error.c",
+        "export.c",
+        "guid.c",
+        "lib.c",
+        "vars.c",
+    ],
+    generated_sources: ["efivar_guid_source"],
+    generated_headers: ["efivar_guid_header"],
+
+    local_include_dirs: ["include"],
+    export_include_dirs: [
+        "include",
+        "include/efivar",
+    ],
+    export_generated_headers: ["efivar_guid_header"],
+
+    cflags: [
+        "-D_FILE_OFFSET_BITS=64",
+        "-D_GNU_SOURCE",
+    ],
+    c_std: "gnu11",
+}
